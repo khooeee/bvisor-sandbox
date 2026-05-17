@@ -7,7 +7,17 @@ const output = sb.runCmd("echo 'Hello, world!'");
 console.log(await output.stdout());
 
 console.log("=== 2. Virtualized filesystem (/tmp/test.txt) ===\n");
-sb.runCmd("echo 'Hello, world!' > /tmp/test.txt");
+// Avoid `echo … > file` (bvisor 0.0.6 + BusyBox ash).
+// For `> path`, ash saves the real stdout on fd 10, dup2s the file onto stdout,
+// runs the command, then restores stdout via dup3(10, 1, …). In the sandbox that
+// saved fd is EBADF, so restore fails and ash retries forever (dup3/writev loop);
+// the shell never exits and awaiting this command's stdout hangs. awk writes via
+// its own redirect inside the awk process, which does not hit this path.
+const write = sb.runCmd(
+  `awk 'BEGIN{print "Hello, world!" > "/tmp/test.txt"}'`,
+);
+await write.stdout();
+await write.stderr();
 const cat = sb.runCmd("cat /tmp/test.txt");
 console.log("inside sandbox:", (await cat.stdout()).trimEnd());
 
